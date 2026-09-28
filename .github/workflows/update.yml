@@ -31,9 +31,10 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: Rastrear BOE (activas)
+        timeout-minutes: 90
         run: python -u run.py crawl
       - name: Rastrear BOE (concluidas, para analisis)
-        run: python -u run.py historico || echo "historico interrumpido; se reintenta manana"
+        run: python -u run.py historico --max-minutos 150 || echo "historico interrumpido; se reintenta manana"
       - name: Geocodificar + distancia a la costa
         run: python -u run.py enrich
       - name: Generar visor

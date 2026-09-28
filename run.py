@@ -13,6 +13,7 @@ Opciones utiles:
 """
 import argparse
 import datetime as dt
+import time
 
 import config
 import db
@@ -114,7 +115,9 @@ def enrich(args):
 def historico(args):
     """Rastrea subastas CONCLUIDAS (PC/FS) y guarda ficha + pujas. Se acumulan
     en la BD (no se purgan) para el apartado de analisis. Solo pide al portal
-    las que aun no tenemos."""
+    las que aun no tenemos. Con --max-minutos se detiene al agotar el tiempo
+    (lo guardado se conserva y la siguiente ejecucion sigue donde quedo)."""
+    limite = time.monotonic() + args.max_minutos * 60 if args.max_minutos else None
     provincias = args.provincias or config.PROVINCIAS_OBJETIVO
     subtipos = args.subtipos or config.SUBTIPOS
     con = db.conectar()
@@ -137,6 +140,11 @@ def historico(args):
                     continue
                 print(f"  {nombre(prov):22} {sub:13} {estado:4} -> {len(nuevos)} nuevas de {len(ids)}")
                 for i, id_sub in enumerate(nuevos, 1):
+                    if limite and time.monotonic() > limite:
+                        con.commit()
+                        print(f"[OK] limite de {args.max_minutos} min alcanzado; "
+                              f"{total} concluidas nuevas guardadas (se sigue en la proxima ejecucion)")
+                        return
                     try:
                         d = cli.detalle(id_sub)
                     except BloqueoCaptcha as e:
@@ -231,6 +239,7 @@ def main():
     hi = sub.add_parser("historico", help="rastrear subastas concluidas (analisis)")
     hi.add_argument("--provincias", nargs="*")
     hi.add_argument("--subtipos", nargs="*", choices=list(SUBTIPOS))
+    hi.add_argument("--max-minutos", type=float, help="parar tras N minutos (lo guardado se conserva)")
     hi.set_defaults(func=historico)
 
     e = sub.add_parser("enrich", help="geocodificar + distancia a la costa")
