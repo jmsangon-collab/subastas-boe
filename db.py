@@ -34,6 +34,12 @@ CREATE TABLE IF NOT EXISTS subastas (
     -- estado de pujas (pestana ver=5, publico)
     num_pujas         INTEGER,
     puja_maxima       REAL,
+    -- posesion y visita (pestana ver=3)
+    vivienda_habitual TEXT,
+    situacion_posesoria TEXT,
+    visitable         TEXT,
+    cargas            REAL,
+    estado_portal     TEXT,   -- concluidas: PC (en portal) / FS (por autoridad gestora)
     -- enriquecimiento geografico
     lat               REAL,
     lon               REAL,
@@ -52,7 +58,10 @@ def conectar():
     existentes = {r[1] for r in con.execute("PRAGMA table_info(subastas)")}
     for col, tipo in [("superficie_m2", "REAL"), ("barrio", "TEXT"),
                       ("distrito", "TEXT"), ("municipio_geo", "TEXT"),
-                      ("num_pujas", "INTEGER"), ("puja_maxima", "REAL")]:
+                      ("num_pujas", "INTEGER"), ("puja_maxima", "REAL"),
+                      ("vivienda_habitual", "TEXT"), ("situacion_posesoria", "TEXT"),
+                      ("visitable", "TEXT"), ("cargas", "REAL"),
+                      ("estado_portal", "TEXT")]:
         if col not in existentes:
             con.execute(f"ALTER TABLE subastas ADD COLUMN {col} {tipo}")
     return con

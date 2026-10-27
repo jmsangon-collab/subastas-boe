@@ -17,3 +17,9 @@ data/crawl.err
 data/enrich.log
 data/enrich.err
 data/subastas_local_parcial.db
+
+# Notas personales (topes de puja, finanzas): el repo es publico
+privado/
+
+# Copias de seguridad
+*.bak*

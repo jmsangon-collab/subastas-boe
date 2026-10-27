@@ -128,13 +128,16 @@ def historico(args):
         for sub in subtipos:
             for estado in ("PC", "FS"):
                 try:
-                    ids = cli.buscar(subtipo=SUBTIPOS[sub], provincia=prov, estado=estado)
+                    ids = cli.buscar_por_fechas(subtipo=SUBTIPOS[sub], provincia=prov, estado=estado)
                 except BloqueoCaptcha as e:
                     con.commit()
                     raise SystemExit(f"[X] historico interrumpido en {nombre(prov)}/{sub}: {e}")
                 except Exception as e:
                     print(f"  [!] {nombre(prov)}/{sub}/{estado}: {e}")
                     continue
+                # las ya guardadas sin estado_portal (versiones anteriores) lo reciben aqui
+                con.executemany("UPDATE subastas SET estado_portal=? WHERE id_sub=? AND estado_portal IS NULL",
+                                [(estado, i) for i in ids if i in tenemos])
                 nuevos = [i for i in ids if i not in tenemos]
                 if not nuevos:
                     continue
@@ -156,6 +159,7 @@ def historico(args):
                     d["subtipo"] = sub
                     d["provincia_cod"] = prov
                     d["estado"] = "concluida"
+                    d["estado_portal"] = estado
                     d["fetched_at"] = _now()
                     db.upsert(con, d)
                     tenemos.add(id_sub)
@@ -175,6 +179,10 @@ def refresh(args):
     con = db.conectar()
     cli = BoeClient()
     filas = con.execute("SELECT id_sub FROM subastas").fetchall()
+    if args.concluidas:
+        # concluidas guardadas antes de que pujas() leyera la puja maxima
+        filas = con.execute("SELECT id_sub FROM subastas WHERE estado='concluida' "
+                            "AND num_pujas IS NULL ORDER BY provincia_cod<>'41'").fetchall()
     if args.cierran_pronto:
         # solo las que cierran en las proximas 48 h (por fecha_fin ISO)
         import datetime as _dt
@@ -186,7 +194,11 @@ def refresh(args):
             (ahora[:16], limite[:16])).fetchall()
     print(f"Refrescando pujas de {len(filas)} lotes...")
     for i, f in enumerate(filas, 1):
-        p = cli.pujas(f["id_sub"])
+        try:
+            p = cli.pujas(f["id_sub"])
+        except BloqueoCaptcha as e:
+            con.commit()
+            raise SystemExit(f"[X] refresh interrumpido en {i}/{len(filas)}: {e}")
         con.execute("UPDATE subastas SET num_pujas=?, puja_maxima=? WHERE id_sub=?",
                     (p["num_pujas"], p["puja_maxima"], f["id_sub"]))
         if i % 20 == 0:
@@ -247,6 +259,7 @@ def main():
 
     rf = sub.add_parser("refresh", help="actualizar solo el estado de pujas (ver=5)")
     rf.add_argument("--cierran-pronto", action="store_true", help="solo las que cierran en 48 h")
+    rf.add_argument("--concluidas", action="store_true", help="solo concluidas sin datos de pujas")
     rf.set_defaults(func=refresh)
 
     x = sub.add_parser("export", help="exportar a Excel/CSV")

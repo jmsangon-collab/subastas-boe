@@ -13,7 +13,8 @@ CAMPOS = ["id_sub", "subtipo", "estado", "precio_ref", "valor_subasta",
           "descripcion", "direccion", "localidad", "barrio", "distrito",
           "provincia", "ccaa", "clase", "dist_costa_m", "lat", "lon", "precision",
           "fecha_inicio", "fecha_fin", "fecha_fin_dt", "num_pujas", "puja_maxima",
-          "sin_pujas", "pct_valor", "anuncio_boe", "url"]
+          "sin_pujas", "pct_valor", "vivienda_habitual", "situacion_posesoria",
+          "visitable", "cargas", "anuncio_boe", "url"]
 
 
 def _clase(descripcion, subtipo):

@@ -280,6 +280,9 @@ TEMPLATE = r"""<!DOCTYPE html>
     <label><span class="t">Localidad</span><input id="loc" list="locs" placeholder="Todas"><datalist id="locs"></datalist></label>
     <label class="sw"><input id="solomar" type="checkbox"><span class="track"></span> A menos de 500 m del mar</label>
     <label class="sw"><input id="soloc" type="checkbox"><span class="track"></span> Solo ubicación exacta</label>
+    <h4>Ocupación y visita</h4>
+    <label><span class="t">Situación posesoria</span><select id="poses"><option value="">Todas</option></select></label>
+    <label class="sw"><input id="solovis" type="checkbox"><span class="track"></span> Solo visitables</label>
     <h4>Pujas y plazos</h4>
     <label class="sw"><input id="sinpuj" type="checkbox"><span class="track"></span> Sin pujas todavía</label>
     <label><span class="t">Cierra en menos de (horas)</span><input id="hmax" type="number" step="1" placeholder="ej: 24"></label>
@@ -372,8 +375,8 @@ document.querySelectorAll('#vista button').forEach(b=>b.onclick=()=>setVista(b.d
 const VISTA_ESP=[[27.5,-19.0],[44.0,4.5]];
 const map = L.map('mapa',{zoomControl:true}).fitBounds(VISTA_ESP);
 let mapaAjustado=false;
-const callejero = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-  {maxZoom:19, attribution:'© OpenStreetMap'}).addTo(map);
+const callejero = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+  {maxZoom:19, attribution:'© Esri, HERE, Garmin, OpenStreetMap'}).addTo(map);
 const satelite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
   {maxZoom:19, attribution:'© Esri, Maxar, Earthstar'});
 const etiquetas = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',{maxZoom:19});
@@ -464,6 +467,13 @@ function abrirDetalle(id){
       <div><small>Distancia al mar</small><b>${d.dist_costa_m!=null?fmt(d.dist_costa_m)+" m":"—"}</b></div>
       <div><small>Ubicación</small><b>${d.lat?PREC[d.precision]||"—":"sin geolocalizar"}</b></div>
     </div>
+    <h5>Ocupación y visita</h5>
+    <div class="kv">
+      <div><small>Situación posesoria</small><b>${esc(d.situacion_posesoria||"—")}</b></div>
+      <div><small>Visitable</small><b>${esc(d.visitable||"—")}</b></div>
+      <div><small>Vivienda habitual</small><b>${esc(d.vivienda_habitual||"—")}</b></div>
+      <div><small>Cargas declaradas</small><b>${eur(d.cargas)}</b></div>
+    </div>
     <h5>Plazos</h5>
     <div class="kv">
       <div><small>Publicación</small><b>${fechaTxt(d.fecha_inicio)}</b></div>
@@ -488,7 +498,7 @@ function marcarFila(id,scroll){
 // ---------- filtros ----------
 function unicos(k){return [...new Set(DATOS.map(d=>d[k]).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'es'));}
 function llenar(sel,vals){vals.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;sel.appendChild(o);});}
-llenar($('sub'), unicos('subtipo')); llenar($('ccaa'), unicos('ccaa')); llenar($('prov'), unicos('provincia')); llenar($('locs'), unicos('localidad'));
+llenar($('sub'), unicos('subtipo')); llenar($('ccaa'), unicos('ccaa')); llenar($('prov'), unicos('provincia')); llenar($('locs'), unicos('localidad')); llenar($('poses'), unicos('situacion_posesoria'));
 const PROV_DE_CCAA={};
 DATOS.forEach(d=>{ if(d.ccaa&&d.provincia){(PROV_DE_CCAA[d.ccaa]=PROV_DE_CCAA[d.ccaa]||new Set()).add(d.provincia);} });
 function refrescarProv(){
@@ -502,6 +512,7 @@ function aplica(){
   const q=$('q').value.toLowerCase().trim(), pmax=parseFloat($('pmax').value)||Infinity;
   const sub=$('sub').value, ccaa=$('ccaa').value, prov=$('prov').value, loc=$('loc').value.trim().toLowerCase();
   const solomar=$('solomar').checked, sinpuj=$('sinpuj').checked, soloc=$('soloc').checked;
+  const poses=$('poses').value, solovis=$('solovis').checked;
   const hmax=parseFloat($('hmax').value), fdesde=$('fdesde').value, fhasta=$('fhasta').value;
   const ahora=Date.now();
   DATOS.forEach(d=>{ d.horas_rest = d.fecha_fin_dt ? (new Date(d.fecha_fin_dt)-ahora)/3.6e6 : null; });
@@ -517,6 +528,8 @@ function aplica(){
     if(solomar && (d.dist_costa_m==null || d.dist_costa_m>500)) return false;
     if(sinpuj && !d.sin_pujas) return false;
     if(soloc && d.precision!=='exacta') return false;
+    if(poses && d.situacion_posesoria!==poses) return false;
+    if(solovis && !/^s[ií]/i.test(d.visitable||"")) return false;
     if(!isNaN(hmax) && (d.horas_rest==null || d.horas_rest<0 || d.horas_rest>hmax)) return false;
     if(fdesde && (!d.fecha_fin || d.fecha_fin<fdesde)) return false;
     if(fhasta && (!d.fecha_fin || d.fecha_fin>fhasta)) return false;
@@ -605,17 +618,17 @@ function renderAna(){
 
 $('dl').onclick=()=>{
   const cols=["id_sub","subtipo","estado","precio_ref","valor_subasta","postura_minima","deposito","superficie_m2","eur_m2",
-    "descripcion","direccion","localidad","provincia","ccaa","dist_costa_m","lat","lon","precision","fecha_inicio","fecha_fin","num_pujas","puja_maxima","pct_valor","anuncio_boe","url"];
+    "descripcion","direccion","localidad","provincia","ccaa","dist_costa_m","lat","lon","precision","fecha_inicio","fecha_fin","num_pujas","puja_maxima","pct_valor","situacion_posesoria","visitable","vivienda_habitual","cargas","anuncio_boe","url"];
   const e=v=>'"'+String(v==null?"":v).replace(/"/g,'""')+'"';
   let csv="﻿"+cols.join(";")+"\n"; filtrados.forEach(d=>csv+=cols.map(c=>e(d[c])).join(";")+"\n");
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"})); a.download="subastas_filtradas.csv"; a.click();
 };
-['q','pmax','sub','prov','loc','solomar','sinpuj','hmax','fdesde','fhasta','soloc'].forEach(id=>{ $(id).addEventListener('input',aplica); $(id).addEventListener('change',aplica); });
+['q','pmax','sub','prov','loc','solomar','sinpuj','hmax','fdesde','fhasta','soloc','poses','solovis'].forEach(id=>{ $(id).addEventListener('input',aplica); $(id).addEventListener('change',aplica); });
 document.querySelectorAll('#estSeg button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('#estSeg button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); estVal=b.dataset.v; aplica();});
 document.querySelectorAll('#claseSeg button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('#claseSeg button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); claseVal=b.dataset.v; aplica();});
 $('orden').addEventListener('change',e=>{ const [k,dd]=e.target.value.split("|"); sortKey=k; sortDir=parseInt(dd); aplica();});
-$('limpiar').onclick=()=>{ ['q','loc','hmax','fdesde','fhasta'].forEach(id=>$(id).value=""); ['sub','ccaa','prov'].forEach(id=>$(id).value=""); $('pmax').value=60000;
-  ['solomar','sinpuj','soloc'].forEach(id=>$(id).checked=false); claseVal=""; estVal="activas"; document.querySelectorAll('#estSeg button').forEach(x=>x.classList.toggle('on',x.dataset.v==="activas")); document.querySelectorAll('#claseSeg button').forEach(x=>x.classList.toggle('on',x.dataset.v==="")); refrescarProv(); aplica(); };
+$('limpiar').onclick=()=>{ ['q','loc','hmax','fdesde','fhasta'].forEach(id=>$(id).value=""); ['sub','ccaa','prov','poses'].forEach(id=>$(id).value=""); $('pmax').value=60000;
+  ['solomar','sinpuj','soloc','solovis'].forEach(id=>$(id).checked=false); claseVal=""; estVal="activas"; document.querySelectorAll('#estSeg button').forEach(x=>x.classList.toggle('on',x.dataset.v==="activas")); document.querySelectorAll('#claseSeg button').forEach(x=>x.classList.toggle('on',x.dataset.v==="")); refrescarProv(); aplica(); };
 
 // ---------- modales ----------
 function abrirModal(id){$(id).classList.add('on');}

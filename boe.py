@@ -72,6 +72,10 @@ class BloqueoCaptcha(RuntimeError):
     por volumen de peticiones. Hay que esperar y bajar el ritmo."""
 
 
+class BusquedaExcesiva(RuntimeError):
+    """El portal rechaza la busqueda por devolver demasiados resultados."""
+
+
 class BoeClient:
     def __init__(self, pausa=2.0):
         self.s = requests.Session()
@@ -105,21 +109,24 @@ class BoeClient:
 
     # ---- Busqueda ---------------------------------------------------------
     def buscar(self, subtipo="", provincia="", origen="", estado="",
-               max_paginas=40):
-        """Devuelve lista de idSub unicos para los criterios dados."""
+               fin_desde="", fin_hasta="", max_paginas=40):
+        """Devuelve lista de idSub unicos para los criterios dados.
+        fin_desde/fin_hasta: rango de fecha de fin (YYYY-MM-DD)."""
         data = {
             "campo[0]": "SUBASTA.ORIGEN", "dato[0]": origen,
             "campo[2]": "SUBASTA.ESTADO.CODIGO", "dato[2]": estado,
             "campo[3]": "BIEN.TIPO", "dato[3]": "I", "dato[4]": subtipo,
             "campo[8]": "BIEN.COD_PROVINCIA", "dato[8]": provincia,
             "campo[9]": "SUBASTA.POSTURA_MINIMA_MINIMA_LOTES", "dato[9]": "",
+            "campo[17]": "SUBASTA.FECHA_FIN",
+            "dato[17][0]": fin_desde, "dato[17][1]": fin_hasta,
             "page_hits": "50",
             "sort_field[0]": "SUBASTA.FECHA_FIN", "sort_order[0]": "asc",
             "accion": "Buscar",
         }
         r = self._post(BUSCAR, data)
         if "es excesivo" in r.text:
-            raise RuntimeError("El BOE considera la busqueda demasiado amplia; "
+            raise BusquedaExcesiva("El BOE considera la busqueda demasiado amplia; "
                                "acota mas (provincia/subtipo).")
         token = self._token(r.text)
         ids = self._ids(r.text)
@@ -137,6 +144,22 @@ class BoeClient:
             offset += 50
         return sorted(set(ids))
 
+    def buscar_por_fechas(self, desde="2015-10-01", hasta=None, **kw):
+        """Como buscar(), pero si el portal la rechaza por excesiva parte el
+        rango de fecha de fin en dos mitades, recursivamente."""
+        import datetime as _dt
+        hasta = hasta or _dt.date.today().isoformat()
+        try:
+            return self.buscar(fin_desde=desde, fin_hasta=hasta, **kw)
+        except BusquedaExcesiva:
+            d0, d1 = _dt.date.fromisoformat(desde), _dt.date.fromisoformat(hasta)
+            if (d1 - d0).days < 2:
+                raise
+            mitad = d0 + (d1 - d0) / 2
+            a = self.buscar_por_fechas(desde, mitad.isoformat(), **kw)
+            b = self.buscar_por_fechas((mitad + _dt.timedelta(days=1)).isoformat(), hasta, **kw)
+            return sorted(set(a) | set(b))
+
     @staticmethod
     def _ids(html):
         return re.findall(r"detalleSubasta\.php\?idSub=([A-Za-z0-9\-]+)", html)
@@ -153,12 +176,16 @@ class BoeClient:
         {num_pujas, puja_maxima}: num_pujas=0 si no hay, None si no se pudo leer."""
         try:
             r = self._get(f"{DETALLE}?idSub={id_sub}&ver=5")
+        except BloqueoCaptcha:
+            raise
         except Exception:
             return {"num_pujas": None, "puja_maxima": None}
         s = BeautifulSoup(r.text, "html.parser")
         txt = s.get_text(" ", strip=True)
         if "no ha recibido pujas" in txt.lower():
             return {"num_pujas": 0, "puja_maxima": None}
+        if "ha recibido alguna puja" in txt.lower():  # importe solo con sesion
+            return {"num_pujas": 1, "puja_maxima": None}
         campos = {}
         for tr in s.find_all("tr"):
             th, td = tr.find("th"), tr.find("td")
@@ -174,6 +201,10 @@ class BoeClient:
         for k, v in campos.items():
             if "puja" in k and ("m\xe1xima" in k or "maxima" in k or "mejor" in k):
                 pmax = _euros(v)
+        if pmax is None:  # el portal lo da como texto suelto, sin fila th/td
+            m = re.search(r"Puja m[\xe1a]xima de la subasta\s*([\d\.]+,\d{2})\s*€", txt)
+            if m:
+                pmax = _euros(m.group(1) + " €")
         # respaldo: si el texto menciona una puja pero no supimos el numero
         if n is None and pmax is not None:
             n = 1
@@ -214,4 +245,8 @@ class BoeClient:
             "fecha_inicio": g("Fecha de inicio") or g("Fecha inicio"),
             "fecha_fin": g("Fecha de conclusion") or g("Fecha de conclusi\xf3n"),
             "lotes": g("Lotes"),
+            "vivienda_habitual": g("Vivienda habitual"),
+            "situacion_posesoria": g("Situación posesoria") or g("Situacion posesoria"),
+            "visitable": g("Visitable"),
+            "cargas": _euros(g("Cargas")),
         }
